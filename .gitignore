@@ -1,7 +1,18 @@
+.gitignore:
+{
+# Entorno
 .venv/
+
+# Cache
 __pycache__/
 *.pyc
-data/*.jsonl
+
+# Datos Jsonl
+data--/*.jsonl
+
+# Vscode config
 .vscode/
 .DS_Store
 
+
+}output/
