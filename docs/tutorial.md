@@ -510,5 +510,96 @@ Con el cambio, las pruebas de escritura, de unicidad y de volumen mínimo fallan
 ---
 
 # Parte 3. Conexión con servidor
+## Parte 3. Conexión con servidor
 
-<!-- Pendiente de completar -->
+### 3.1. Qué se quiere conseguir y problema de red
+
+El simulador se ejecuta en un equipo con **Windows Server** (`10.105.0.3`), donde se generan los cuatro archivos de salida en la carpeta `data/` (`sensor_readings.jsonl`, `weather_readings.jsonl`, `irrigation_events.jsonl` y `alerts.jsonl`). El objetivo es que el resto de ordenadores (hasta 20 equipos) puedan acceder a estos archivos y descargarlos a medida que se actualizan, sin necesidad de instalar programas adicionales en cada ordenador cliente.
+
+La idea inicial fue activar el servidor OpenSSH en el Windows Server y conectarse desde los demás equipos mediante **FileZilla (SFTP)** por el puerto `22`:
+
+```text
+Estado: Conectando a 10.105.0.3:22...
+Error:  La conexión superó el tiempo de espera después de 20 segundos de inactividad
+Error:  No se pudo conectar al servidor
+```
+
+Al estar en una red escolar con subredes aisladas y cortafuegos interno, cualquier intento de conexión entrante directa hacia la IP privada `10.105.0.3` (tanto por el puerto `22` de SSH como por el puerto `8080` en navegador) devuelve `ERR_CONNECTION_TIMED_OUT`. Además, en una red de centro educativo no es posible abrir puertos en el router (Port Forwarding).
+
+### 3.2. Alternativas probadas y descartadas
+
+| Opción | Motivo de descarte |
+| :--- | :--- |
+| **SSH / SFTP con FileZilla (puerto 22)** | Bloqueado por el aislamiento entre redes/subredes del centro (`ERR_CONNECTION_TIMED_OUT`). |
+| **VPN en malla (Tailscale)** | Obliga a instalar el programa e iniciar sesión en los 20 ordenadores cliente. |
+| **GitHub Gist** | Si los archivos `.jsonl` cambian o crecen, obliga a resubirlos manualmente cada vez y no soporta archivos grandes (de decenas de GB). |
+| **Ngrok / Zrok** | Tienen límites de transferencia en sus planes gratuitos (p. ej., 10 GB/día en Zrok), insuficientes cuando se manejan archivos de ~30 GB. |
+
+### 3.3. Solución adoptada: servidor HTTP de Python + Cloudflare Tunnel
+
+Para sortear el bloqueo de la red sin tocar el router y sin instalar nada en los ordenadores cliente, se combinan dos herramientas en el Windows Server:
+
+1. **`http.server` (incluido en Python)**: expone la carpeta `data/` en el propio servidor a través de `http://localhost:8080`.
+2. **Cloudflare Tunnel (`cloudflared.exe`)**: abre una conexión saliente desde el Windows Server hacia Cloudflare por el puerto `443` (tráfico HTTPS estándar, que el cortafuegos del centro sí permite) y genera una dirección pública temporal (`https://*.trycloudflare.com`) sin límite de tráfico.
+
+De esta forma, cuando el simulador añade nuevas líneas a los `.jsonl`, cualquier compañero que entre al enlace o recargue la página obtiene directamente el archivo actualizado en disco.
+
+### 3.4. Puesta en marcha paso a paso en el Windows Server
+
+**Paso 1 — Iniciar el servidor web local en la carpeta de datos**
+
+En una primera consola, se entra en la carpeta donde están los `.jsonl` del proyecto y se levanta el servidor HTTP de Python en el puerto `8080`:
+
+```powershell
+cd data
+python -m http.server 8080
+```
+
+La consola queda a la escucha en `http://localhost:8080`.
+
+**Paso 2 — Descargar y lanzar el túnel de Cloudflare**
+
+Se descarga el ejecutable oficial [`cloudflared-windows-amd64.exe`](https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe) y se renombra a `cloudflared.exe`.
+
+En una segunda ventana de PowerShell (situada en la carpeta donde está `cloudflared.exe`), se lanza el túnel apuntando al puerto `8080` local:
+
+```powershell
+.\cloudflared.exe tunnel --url http://localhost:8080
+```
+
+Comprobación con la salida real en el Windows Server (`10.105.0.3`):
+
+```text
+PS C:\Users\Administrator\Downloads> .\cloudflared.exe tunnel --url http://localhost:8080
+2026-10-15T10:41:50Z INF Requesting new quick Tunnel on trycloudflare.com...
+2026-10-15T10:41:56Z INF +--------------------------------------------------------------------------------------------+
+2026-10-15T10:41:56Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |
+2026-10-15T10:41:56Z INF |  [https://observe-princess-disposal-baskets.trycloudflare.com](https://observe-princess-disposal-baskets.trycloudflare.com)                               |
+2026-10-15T10:41:56Z INF +--------------------------------------------------------------------------------------------+
+2026-10-15T10:41:56Z INF ICMP proxy will use 10.105.0.3 as source for IPv4
+2026-10-15T10:41:56Z INF +-------------------------------------------------------------------------------------+
+2026-10-15T10:41:56Z INF |                                CONNECTIVITY PRE-CHECKS                              |
+2026-10-15T10:41:56Z INF +-------------------------------------------------------------------------------------+
+2026-10-15T10:41:56Z INF |  COMPONENT         TARGET                     STATUS  DETAILS                       |
+2026-10-15T10:41:56Z INF |  DNS Resolution    region1.v2.argotunnel.com  PASS    DNS Resolved successfully     |
+2026-10-15T10:41:56Z INF |  UDP Connectivity  region1.v2.argotunnel.com  PASS    QUIC connection successful    |
+2026-10-15T10:41:56Z INF |  TCP Connectivity  region1.v2.argotunnel.com  PASS    HTTP/2 connection successful  |
+2026-10-15T10:41:56Z INF |  Cloudflare API    api.cloudflare.com:443     PASS    API is reachable              |
+2026-10-15T10:41:56Z INF |  SUMMARY: Environment is healthy. cloudflared will use 'quic' as primary protocol.  |
+2026-10-15T10:41:56Z INF +-------------------------------------------------------------------------------------+
+2026-10-15T10:41:56Z INF Registered tunnel connection connIndex=0 connection=50c1992c-535e-4b12-ba7e-6a06cd144685 event=0 ip=198.41.192.167 location=mad06 protocol=quic
+```
+
+### 3.5. Acceso desde el resto de ordenadores
+
+Con ambas consolas abiertas en el servidor, el resto de equipos solo necesitan abrir el navegador y entrar en el enlace generado por Cloudflare (en la prueba, `https://observe-princess-disposal-baskets.trycloudflare.com`):
+
+* Se muestra directamente el listado con los 4 archivos (`sensor_readings.jsonl`, `weather_readings.jsonl`, `irrigation_events.jsonl` y `alerts.jsonl`).
+* Para guardarlos en el equipo local basta con hacer **clic derecho → Guardar enlace como...** sobre cada archivo (o pulsar `F5` si se han generado nuevos datos en el servidor).
+* También se pueden descargar por consola con `curl -O <URL>/sensor_readings.jsonl`.
+
+### 3.6. Limitaciones y detalles a tener en cuenta
+
+* **Mantener las dos consolas abiertas**: tanto la consola de `python -m http.server 8080` como la de `cloudflared.exe` deben permanecer en ejecución mientras se estén compartiendo los archivos. Si se cierra cualquiera de las dos, el enlace deja de funcionar.
+* **URL aleatoria en cada inicio**: el modo rápido sin cuenta (`trycloudflare.com`) asigna un subdominio aleatorio cada vez que se ejecuta el comando. Si no se detiene el proceso, la dirección se mantiene fija durante toda la sesión aunque los archivos `.jsonl` cambien por dentro.
+* **Uso de `.\` en PowerShell**: Windows PowerShell no ejecuta por defecto binarios de la carpeta actual si no se indica la ruta relativa (`.\cloudflared.exe`).
