@@ -24,25 +24,36 @@ El generador **mantiene un estado por parcela** (humedad del suelo, riego, bater
 
 ## 2. Requisitos
 
-- Python 3.9 o superior.
-- **Solo biblioteca estándar**: no hay dependencias externas (ver `requirements.txt`).
-- `tkinter` (incluido con Python en Windows) solo si se usa el lanzador con ventana `engine.py`.
+- **Python 3.10 o superior**.
+- **Simulador base y pruebas (`main.py`, `tests/`):** solo utilizan la **biblioteca estándar de Python** (no requieren instalar dependencias externas).
+- **Lanzador con ventana (`engine.py`):** utiliza `tkinter` (incluido por defecto con Python en Windows).
+- **Panel interactivo opcional (`dashboard.py`):** requiere `streamlit`, `pandas` y `plotly` (incluidos en `requirements.txt`).
 
 ## 3. Instalación
 
 ```bash
-git clone https://github.com/<tu-usuario>/smart-agriculture-iot-simulator.git
+git clone [https://github.com/](https://github.com/)BigSierra365/smart-agriculture-iot-simulator.git
 cd smart-agriculture-iot-simulator
 python -m venv .venv
-source .venv/Scripts/activate        # Git Bash en Windows (Linux/macOS: source .venv/bin/activate)
-pip install -r requirements.txt      # no instala nada: solo biblioteca estándar
+source .venv/Scripts/activate        # Git Bash en Windows (PowerShell: .\.venv\Scripts\Activate.ps1)
+pip install -r requirements.txt      # Opcional: solo necesario para el dashboard en Streamlit
+
 ```
 
 ## 4. Ejecución
 
+El proyecto ofrece tres herramientas de ejecución y análisis:
+
 ```bash
-python main.py       # usa los valores de config.py
-python engine.py     # ventana para cambiar parámetros sin editar config.py
+# 1. Ejecutar el simulador por consola (usa los valores de config.py)
+python main.py
+
+# 2. Abrir el lanzador gráfico para cambiar parámetros en RAM sin modificar config.py
+python engine.py
+
+# 3. Abrir el panel interactivo de telemetría y alertas (opcional)
+streamlit run dashboard.py
+
 ```
 
 ### Parámetros (`config.py`)
@@ -62,19 +73,20 @@ python engine.py     # ventana para cambiar parámetros sin editar config.py
 
 En `config.py`: `SIMULATION_MODE = "LIMITED"` y `SIMULATION_DURATION = 1000`, y después:
 
-![Ejecución del simulador](docs/img/01_ejecucion.png)
-
 > En modo limitado el límite se comprueba al empezar cada parcela, por lo que puede generarse algún evento más.
 
 ### Modo continuo
 
-Con `SIMULATION_MODE = "CONTINUOUS"` el simulador no termina hasta pulsar `Ctrl+C`, que se captura para cerrar de forma controlada sin corromper los archivos.
+Con `SIMULATION_MODE = "CONTINUOUS"` el simulador no termina hasta pulsar `Ctrl+C`, que se captura para cerrar de forma controlada sin corromper los archivos. También puede lanzarse directamente sin editar `config.py` con:
+
+```bash
+python -c "import config, main; config.SIMULATION_MODE='CONTINUOUS'; config.REALTIME_SLEEP=0.5; main.main()"
+
+```
 
 ### Archivos de salida
 
 Se amplían en cada ejecución (modo *append*), nunca se sobrescriben. Para empezar de cero, borra los `.jsonl` de la carpeta de salida.
-
-![Líneas por archivo](docs/img/02_lineas.png)
 
 ## 5. Estructura del proyecto
 
@@ -88,23 +100,27 @@ smart-agriculture-iot-simulator/
 ├── irrigation.py      # Controlador de riego
 ├── anomalies.py       # Detección e inyección de alertas
 ├── data_writer.py     # Escritura en JSON Lines
-├── engine.py          # Lanzador con ventana (Tkinter)
-├── validar_datos.py   # Comprobación rápida de los archivos generados
+├── engine.py          # Lanzador con ventana en modo seguro (Tkinter)
+├── dashboard.py       # Panel interactivo de visualización (Streamlit + Plotly)
 ├── data/              # Muestra de los 4 archivos .jsonl
+│   ├── sensor_readings.jsonl
+│   ├── weather_readings.jsonl
+│   ├── irrigation_events.jsonl
+│   └── alerts.jsonl
 ├── docs/
 │   ├── tutorial.md    # Tutorial paso a paso
 │   └── img/           # Capturas de evidencia
-├── tests/             # Pruebas automatizadas (unittest)
+├── tests/
+│   └── test_simulador.py  # 20 pruebas automatizadas (unittest)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
+
 ```
 
 ## 6. Esquemas de los eventos
 
 Todos los eventos incluyen `event_id` (UUID4 único), `timestamp` (UTC, ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`), `device_id`, `event_type` y `farm_id`.
-
-![Una línea de cada archivo](docs/img/03_muestra.png)
 
 ### 6.1. `sensor_reading` → `sensor_readings.jsonl`
 
@@ -189,35 +205,26 @@ Las dos primeras se **detectan** en los datos; las otras tres se **inyectan** co
 
 ```bash
 python -m unittest discover -s tests -v
+
 ```
 
-Son 20 pruebas (`tests/test_simulador.py`) agrupadas en tres bloques: validación de datos, reglas de simulación y modos/almacenamiento. Las pruebas no tocan `config.py` ni la carpeta `data/` real. Detalle en la [Parte 2 del tutorial](docs/tutorial.md#parte-2-pruebas-unitarias).
+Son 20 pruebas (`tests/test_simulador.py`) agrupadas en tres bloques: validación de datos, reglas de simulación y modos/almacenamiento. Las pruebas se ejecutan en directorios temporales aislados y no modifican `config.py` ni la carpeta `data/` real. Detalle en la [Parte 2 del tutorial](https://www.google.com/search?q=docs/tutorial.md%23parte-2-pruebas-unitarias).
 
-![Pruebas unitarias](docs/img/04_pruebas.png)
+### 8.2. Resumen frente a la tabla de validación de la práctica
 
-### 8.2. Validación de una ejecución de 1.000 eventos
-
-```bash
-python validar_datos.py
-```
-
-![Validación de los datos](docs/img/05_validacion.png)
-
-### 8.3. Resumen frente a la tabla de validación de la práctica
-
-| Prueba | Resultado | Cómo se comprueba |
+| Prueba | Resultado | Cómo se comprueba (`tests/test_simulador.py`) |
 | --- | --- | --- |
-| Validación JSONL | ✅ Todas las líneas son JSON válido | `test_jsonl_valido`, `validar_datos.py` |
+| Validación JSONL | ✅ Todas las líneas son JSON válido | `test_jsonl_valido` |
 | Campos obligatorios | ✅ `event_id`, `timestamp`, `device_id` en todos | `test_campos_obligatorios` |
 | Unicidad | ✅ 0 `event_id` duplicados | `test_event_id_sin_duplicados` |
-| Tiempos | ✅ 1000/1000 en UTC ISO 8601 | `test_timestamps_utc_iso_8601` |
+| Tiempos | ✅ Todos en formato UTC ISO 8601 | `test_timestamps_utc_iso_8601` |
 | Dispositivos | ✅ Los 16 `device_id` definidos | `test_dispositivos_simulados` |
 | Comportamiento temporal | ✅ Más calor de tarde, radiación 0 de noche | `test_ciclo_diario` |
 | Riego y lluvia | ✅ El suelo responde a los aportes | `test_lluvia_sube_la_humedad`, `test_riego_*` |
 | Anomalías | ✅ Alertas identificables almacenadas | `test_alertas_identificables` |
-| Modo limitado | ✅ Finaliza solo | `test_modo_limitado_termina_solo` |
+| Modo limitado | ✅ Finaliza automáticamente según configuración | `test_modo_limitado_termina_solo` |
 | Modo continuo | ✅ Se detiene con `Ctrl+C` sin corromper archivos | `test_modo_continuo_se_detiene_con_ctrl_c_sin_corromper_archivos` |
-| Volumen mínimo | ✅ 1.000 eventos en una ejecución | `test_volumen_minimo_1000_eventos` |
+| Volumen mínimo | ✅ ≥ 1.000 eventos en una ejecución de prueba | `test_volumen_minimo_1000_eventos` |
 
 ## 9. Muestra de datos
 
@@ -225,5 +232,5 @@ La carpeta `data/` contiene una muestra pequeña y representativa de los cuatro 
 
 ## 10. Notas
 
-- `weather.py` guarda el viento y la batería como variables del módulo; en una ejecución normal (`python main.py`, proceso nuevo) no hay ningún problema.
-- No se publican secretos, credenciales ni información sensible.
+* `weather.py` guarda el viento y la batería como variables del módulo; en una ejecución normal (`python main.py`, proceso nuevo) no hay ningún problema.
+* No se publican secretos, credenciales ni información sensible.

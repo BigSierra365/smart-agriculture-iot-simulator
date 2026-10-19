@@ -1,9 +1,5 @@
 # Tutorial: Simulador de sensores IoT — Smart Agriculture
 
-**Práctica:** Smart Agriculture — Simulador de sensores IoT con Python
-**Empresa ficticia:** AgroSmart Solutions
-**Autor:** Emmanuel Grande Sierra
-
 Este tutorial explica, paso a paso, cómo se ha desarrollado y probado el simulador. Está dividido en tres partes:
 
 1. [Planteamiento y desarrollo](#parte-1-planteamiento-y-desarrollo)
